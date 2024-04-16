@@ -22,6 +22,13 @@ class AdviceController < ApplicationController
       (sorted_advice[sorted_advice.length - 1].score != @questionnaire.min_question_score))
   end
 
+  ## This method will return true if the advice and its scores is valid.
+  # Validates by utilizing the private methods validate_advice_length? and valid_advice_scores?
+  def valid_advice?(sorted_advice, num_advices, question)
+    valid_advice_length?(num_advices, question, sorted_advice) &&
+      valid_advice_scores?(sorted_advice)
+  end
+
   # Modify the advice associated with a questionnaire
   # Separate methods were introduced to calculate the number of advices and sort the advices related to the current question attribute
   # This is done to adhere to Single Responsibility Principle
@@ -81,4 +88,20 @@ class AdviceController < ApplicationController
     end
     redirect_to action: 'edit_advice', id: params[:id]
   end
+
+  private
+
+  ## Checks to make sure the advice is the correct length.
+  # Validates by checking the number of advices is the same as the question_advices and it is not empty.
+  def valid_advice_length?(num_advices, question, sorted_advice)
+    question.question_advices.length == num_advices && !sorted_advice.empty?
+  end
+
+  ## Checks to make sure the scores in the advice are valid.
+  # Validates by checking the first and last index of the sorted advice array to make sure they are the min / max quesiton score.
+  def valid_advice_scores?(sorted_advice)
+    sorted_advice[0].score == @questionnaire.max_question_score &&
+      sorted_advice[sorted_advice.length - 1].score == @questionnaire.min_question_score
+  end
+
 end
