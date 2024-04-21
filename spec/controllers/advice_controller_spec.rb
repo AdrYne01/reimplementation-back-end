@@ -1,4 +1,5 @@
 require 'rails_helper'
+require 'questionnaire_helper'
 
 describe AdviceController, type: :controller do
   let(:super_admin) { build(:superadmin, id: 1, role_id: 1) }
@@ -213,6 +214,151 @@ describe AdviceController, type: :controller do
         expect(result).to render_template(:edit_advice)
       end
     end
+    
+  describe '#save_advice' do
+    let(:questionAdvice1) { build(:question_advice, id: 1, score: 1, question_id: 1, advice: 'Advice1') }
+    let(:questionAdvice2) { build(:question_advice, id: 2, score: 2, question_id: 1, advice: 'Advice2') }
+    let(:questionnaire) do
+      build(:questionnaire, id: 1, min_question_score: 1,
+            questions: [build(:question, id: 1, weight: 2, question_advices: [questionAdvice1, questionAdvice2])], max_question_score: 2)
+    end
+    context 'when the advice is present' do
+      it 'updates the advice for each key' do
+        # Arrange
+        allow(Questionnaire).to receive(:find).with('1').and_return(questionnaire)
+        allow(QuestionAdvice).to receive(:update).with('1', { advice: 'Hello' }).and_return('Ok')
+        allow(QuestionAdvice).to receive(:update).with('2', { advice: 'Goodbye' }).and_return('Ok')
+        # Add some advice parameters that will allow for update success
+        advice_params = {
+          '1' => { advice: 'Hello' },
+          '2' => { advice: 'Goodbye' }
+        }
+        params = { advice: advice_params, id: 1 }
+        session = { user: instructor1 }
+
+        # Act
+        result = get(:save_advice, params:, session:)
+
+        # Assert
+        # check each key to see if it received update
+        # Always expect redirect
+        advice_params.keys.each do |advice_key|
+          expect(QuestionAdvice).to have_received(:update).with(advice_key, advice: advice_params[advice_key][:advice])
+        end
+        expect(result.status).to eq 302
+        expect(result).to redirect_to('/advice/edit_advice?id=1')
+      end
+
+      it 'sets a success flash notice' do
+        # Arrange
+        allow(Questionnaire).to receive(:find).with('1').and_return(questionnaire)
+        allow(QuestionAdvice).to receive(:update).with('1', { advice: 'Hello' }).and_return('Ok')
+        allow(QuestionAdvice).to receive(:update).with('2', { advice: 'Goodbye' }).and_return('Ok')
+        # Add some advice parameters that will allow for update success
+        params = { advice: {
+          '1' => { advice: 'Hello' },
+          '2' => { advice: 'Goodbye' }
+        }, id: 1 }
+        session = { user: instructor1 }
+
+        # Act
+        get(:save_advice, params:, session:)
+
+        # Assert
+        expect(flash[:notice]).to eq('The advice was successfully saved!')
+        
+    context 'when advice adjustment is not necessary' do
+      let(:questionAdvice1) { build(:question_advice, id: 1, score: 1, question_id: 1, advice: 'Advice1') }
+      let(:questionAdvice2) { build(:question_advice, id: 2, score: 2, question_id: 1, advice: 'Advice2') }
+      let(:questionnaire) do
+        build(:questionnaire, id: 1, min_question_score: 1,
+              questions: [build(:question, id: 1, weight: 2, question_advices: [questionAdvice1, questionAdvice2])], max_question_score: 2)
+      end
+
+      it 'does not adjust advice size when called' do
+        allow(Questionnaire).to receive(:find).with('1').and_return(questionnaire)
+        allow(controller).to receive(:invalid_advice?).and_return(false)
+        expect(QuestionnaireHelper).not_to receive(:adjust_advice_size)
+        get :edit_advice, params: { id: 1 }
+      end
+    end
+    context "when the advice size needs adjustment" do
+      let(:questionAdvice1) { build(:question_advice, id: 1, score: 1, question_id: 1, advice: 'Advice1') }
+      let(:questionAdvice2) { build(:question_advice, id: 2, score: 2, question_id: 1, advice: 'Advice2') }
+      let(:questionnaire) do
+        build(:questionnaire, id: 1, min_question_score: 1,
+              questions: [build(:question, id: 1, weight: 2, question_advices: [questionAdvice1, questionAdvice2])], max_question_score: 2)
+      end
+
+      before do
+        allow(Questionnaire).to receive(:find).with('1').and_return(questionnaire)
+        allow(controller).to receive(:invalid_advice?).and_return(true)
+      end
+
+      it "calculates the number of advices for each question" do
+        expect(controller).to receive(:calculate_num_advices).once # Assuming there are two questions in the questionnaire
+        get :edit_advice, params: { id: 1 }
+      end
+
+      it "sorts question advices in descending order by score" do
+        expect(controller).to receive(:sort_question_advices).once # Assuming there are two questions in the questionnaire
+        get :edit_advice, params: { id: 1 }
+      end
+
+      it "adjusts the advice size if the number of advices is less than the max score of the questionnaire" do
+        allow(controller).to receive(:calculate_num_advices).and_return(1) # Assuming only one advice calculated
+        expect(QuestionnaireHelper).to receive(:adjust_advice_size).with(questionnaire, questionnaire.questions.first)
+        get :edit_advice, params: { id: 1 }
+      end
+
+      it "adjusts the advice size if the number of advices is greater than the max score of the questionnaire" do
+        allow(controller).to receive(:calculate_num_advices).and_return(3) # Assuming three advices calculated
+        expect(QuestionnaireHelper).to receive(:adjust_advice_size).with(questionnaire, questionnaire.questions.first)
+        get :edit_advice, params: { id: 1 }
+      end
+
+      it "adjusts the advice size if the max score of the advices does not correspond to the max score of the questionnaire" do
+        allow(controller).to receive(:sort_question_advices).and_return([questionAdvice2, questionAdvice1]) # Assuming advices not sorted correctly
+        expect(QuestionnaireHelper).to receive(:adjust_advice_size).with(questionnaire, questionnaire.questions.first)
+        get :edit_advice, params: { id: 1 }
+      end
+
+      it "adjusts the advice size if the min score of the advices does not correspond to the min score of the questionnaire" do
+        allow(questionnaire).to receive(:min_question_score).and_return(0) # Assuming min score not matching
+        expect(QuestionnaireHelper).to receive(:adjust_advice_size).with(questionnaire, questionnaire.questions.first)
+        get :edit_advice, params: { id: 1 }
+      end
+    end
+
+    context "when the advice size does not need adjustment" do
+      let(:questionAdvice1) { build(:question_advice, id: 1, score: 1, question_id: 1, advice: 'Advice1') }
+      let(:questionAdvice2) { build(:question_advice, id: 2, score: 2, question_id: 1, advice: 'Advice2') }
+      let(:questionnaire) do
+        build(:questionnaire, id: 1, min_question_score: 1,
+              questions: [build(:question, id: 1, weight: 2, question_advices: [questionAdvice1, questionAdvice2])], max_question_score: 2)
+      end
+
+      before do
+        allow(Questionnaire).to receive(:find).with('1').and_return(questionnaire)
+        allow(controller).to receive(:invalid_advice?).and_return(false)
+      end
+
+      it "does not adjust the advice size if the number of advices is equal to the max score of the questionnaire" do
+        allow(controller).to receive(:calculate_num_advices).and_return(2) # Assuming two advices calculated
+        expect(QuestionnaireHelper).not_to receive(:adjust_advice_size)
+        get :edit_advice, params: { id: 1 }
+      end
+
+      it "does not adjust the advice size if the max score of the advices corresponds to the max score of the questionnaire" do
+        expect(QuestionnaireHelper).not_to receive(:adjust_advice_size)
+        get :edit_advice, params: { id: 1 }
+      end
+
+      it "does not adjust the advice size if the min score of the advices corresponds to the min score of the questionnaire" do
+        expect(QuestionnaireHelper).not_to receive(:adjust_advice_size)
+        get :edit_advice, params: { id: 1 }
+      end
+    end
   end
 
   describe '#save_advice' do
@@ -248,6 +394,7 @@ describe AdviceController, type: :controller do
         expect(result.status).to eq 302
         expect(result).to redirect_to('/advice/edit_advice?id=1')
       end
+    end
 
       it 'sets a success flash notice' do
         # Arrange

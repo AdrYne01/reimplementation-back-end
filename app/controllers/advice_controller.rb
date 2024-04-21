@@ -85,7 +85,7 @@ class AdviceController < ApplicationController
     # Stores the questionnaire with given id in URL
     @questionnaire = Questionnaire.find(params[:id])
     end
-
+  
   ## Checks to see if the advice is the correct length.
   #  Checks to see if the number of advices is different than the question_advices or advice is empty
   def invalid_advice_length?(num_advices, question, sorted_advice)
